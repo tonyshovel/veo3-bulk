@@ -62,12 +62,19 @@ export class VeoService {
       })
     });
 
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || "Failed to start video generation");
+    const responseText = await response.text();
+    let data: any = {};
+    try {
+      data = JSON.parse(responseText);
+    } catch (e) {
+      throw new Error(`Server returned non-JSON response: ${responseText.substring(0, 100)}...`);
     }
 
-    let operation = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || "Failed to start video generation");
+    }
+
+    let operation = data;
 
     // 2. Poll for completion
     while (!operation.done) {
@@ -83,8 +90,16 @@ export class VeoService {
         })
       });
 
-      if (!statusRes.ok) throw new Error("Failed to check video status");
-      operation = await statusRes.json();
+      const statusText = await statusRes.text();
+      let statusData: any = {};
+      try {
+        statusData = JSON.parse(statusText);
+      } catch (e) {
+        throw new Error(`Server returned non-JSON status response: ${statusText.substring(0, 100)}...`);
+      }
+
+      if (!statusRes.ok) throw new Error(statusData.error || "Failed to check video status");
+      operation = statusData;
     }
 
     const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;

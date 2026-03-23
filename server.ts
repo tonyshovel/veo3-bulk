@@ -379,6 +379,15 @@ async function startServer() {
     });
   }
 
+  // Global error handler
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error("Global Error:", err);
+    res.status(err.status || 500).json({
+      error: err.message || "Internal Server Error",
+      details: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    });
+  });
+
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
