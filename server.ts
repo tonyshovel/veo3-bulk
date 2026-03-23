@@ -225,6 +225,8 @@ async function startServer() {
       });
 
       const responseText = await response.text();
+      let data: any = {};
+      try { data = JSON.parse(responseText); } catch (e) { /* Not JSON */ }
       
       // Nếu Proxy trả về 200 OK thì chắc chắn thành công
       if (response.ok) {
@@ -238,7 +240,7 @@ async function startServer() {
         return res.json({ success: true, note: "Connectivity OK (Method mismatch expected for video models)" });
       }
 
-      throw new Error(`HTTP ${response.status}: ${responseText}`);
+      res.status(response.status).json({ error: data.error?.message || responseText || `HTTP ${response.status}` });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -271,8 +273,13 @@ async function startServer() {
         })
       });
 
-      if (!response.ok) throw new Error(await response.text());
-      const data = await response.json();
+      const responseText = await response.text();
+      let data: any = {};
+      try { data = JSON.parse(responseText); } catch (e) { /* Not JSON */ }
+
+      if (!response.ok) {
+        return res.status(response.status).json({ error: data.error?.message || responseText || "Failed to start generation" });
+      }
       res.json(data);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -286,13 +293,22 @@ async function startServer() {
 
     try {
       const cleanBaseUrl = baseUrl.replace(/\/$/, '');
-      const url = `${cleanBaseUrl}/v1beta/${operation_name}?key=${apiKey}`;
+      const hasVersion = cleanBaseUrl.includes('/v1') || cleanBaseUrl.includes('/v1beta');
+      const url = hasVersion
+        ? `${cleanBaseUrl}/${operation_name}?key=${apiKey}`
+        : `${cleanBaseUrl}/v1beta/${operation_name}?key=${apiKey}`;
       
       const response = await fetch(url, {
         headers: { 'x-goog-api-key': apiKey }
       });
-      if (!response.ok) throw new Error(await response.text());
-      const data = await response.json();
+
+      const responseText = await response.text();
+      let data: any = {};
+      try { data = JSON.parse(responseText); } catch (e) { /* Not JSON */ }
+
+      if (!response.ok) {
+        return res.status(response.status).json({ error: data.error?.message || responseText || "Failed to check status" });
+      }
       res.json(data);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
