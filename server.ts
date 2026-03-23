@@ -1,0 +1,227 @@
+import express from "express";
+import { createServer as createViteServer } from "vite";
+import path from "path";
+import Anthropic from "@anthropic-ai/sdk";
+import dotenv from "dotenv";
+
+dotenv.config();
+
+async function startServer() {
+  const app = express();
+  const PORT = 3000;
+
+  app.use(express.json());
+
+  const anthropic = new Anthropic({
+    apiKey: process.env.CLAUDE_API_KEY || "",
+    baseURL: process.env.VITE_API_BASE_URL || undefined,
+  });
+
+  // Helper for Universal LLM calling
+  async function callLLM(params: {
+    apiKey: string,
+    baseUrl: string,
+    model: string,
+    system?: string,
+    prompt: string,
+    maxTokens?: number,
+    proxyType?: 'openai' | 'anthropic'
+  }) {
+    const { apiKey, baseUrl, model, system, prompt, maxTokens, proxyType } = params;
+    
+    // Default to OpenAI if it's a multi-model proxy, unless specified
+    const type = proxyType || (baseUrl.includes('anthropic.com') ? 'anthropic' : 'openai');
+
+    const commonHeaders = {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+      "Accept": "application/json",
+      "Content-Type": "application/json",
+    };
+
+    if (type === 'anthropic') {
+      const client = new Anthropic({
+        apiKey: apiKey,
+        baseURL: baseUrl || undefined,
+        defaultHeaders: commonHeaders
+      });
+      return await client.messages.create({
+        model: model,
+        max_tokens: maxTokens || 1024,
+        system: system,
+        messages: [{ role: "user", content: prompt }],
+      });
+    } else {
+      // OpenAI Compatible
+      const url = baseUrl.endsWith('/') ? `${baseUrl}chat/completions` : `${baseUrl}/chat/completions`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          ...commonHeaders,
+          "Authorization": `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: model,
+          messages: [
+            ...(system ? [{ role: 'system', content: system }] : []),
+            { role: 'user', content: prompt }
+          ],
+          max_tokens: maxTokens || 1024,
+          temperature: 0.7
+        })
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        let errorData;
+        try { errorData = JSON.parse(text); } catch(e) { errorData = { message: text }; }
+        const error: any = new Error(errorData.error?.message || errorData.message || response.statusText);
+        error.status = response.status;
+        throw error;
+      }
+
+      const data = await response.json();
+      // Map OpenAI response to Anthropic-like structure for compatibility with existing code
+      return {
+        model: data.model,
+        content: [{ type: 'text', text: data.choices[0].message.content }]
+      };
+    }
+  }
+
+  // API Route for testing Proxy API
+  app.post("/api/test-proxy", async (req, res) => {
+    const { proxy_api_key, api_base_url, proxy_model, proxy_type } = req.body;
+
+    const apiKey = proxy_api_key || process.env.CLAUDE_API_KEY;
+    const baseUrl = api_base_url || process.env.VITE_API_BASE_URL;
+
+    if (!apiKey) {
+      return res.status(400).json({ error: "API Key is not configured." });
+    }
+
+    try {
+      const response = await callLLM({
+        apiKey,
+        baseUrl,
+        model: proxy_model || "claude-3-5-sonnet-20240620",
+        prompt: "Hi",
+        maxTokens: 10,
+        proxyType: proxy_type
+      });
+      res.json({ success: true, model: response.model });
+    } catch (error: any) {
+      console.error("Proxy Test Error Details:", {
+        message: error.message,
+        status: error.status,
+        baseUrl: baseUrl,
+        model: proxy_model
+      });
+      
+      let suggestion = "Hãy kiểm tra lại API Key, Base URL và Model Name. Đảm bảo bạn đã chọn đúng 'Loại Proxy' (OpenAI hoặc Anthropic).";
+      if (error.status === 403) {
+        suggestion = "Lỗi 403 Forbidden: Proxy hoặc API từ chối yêu cầu. Hãy thử đổi 'Loại Proxy' sang OpenAI hoặc kiểm tra lại Base URL (thêm /v1).";
+      }
+
+      res.status(error.status || 500).json({ 
+        error: error.message,
+        suggestion: suggestion
+      });
+    }
+  });
+
+  // API Route for Script Parsing via Proxy
+  app.post("/api/parse-script", async (req, res) => {
+    const { script, proxy_api_key, api_base_url, proxy_model, proxy_type } = req.body;
+
+    const apiKey = proxy_api_key || process.env.CLAUDE_API_KEY;
+    const baseUrl = api_base_url || process.env.VITE_API_BASE_URL;
+
+    if (!apiKey) {
+      return res.status(500).json({ error: "API Key is not configured. Please set it in Settings." });
+    }
+
+    try {
+      const response = await callLLM({
+        apiKey,
+        baseUrl,
+        model: proxy_model || "claude-3-5-sonnet-20240620",
+        maxTokens: 4000,
+        system: "Bạn là một chuyên gia phân tích kịch bản phim. Hãy phân tích kịch bản thành 5 cảnh quay, mỗi cảnh 8 giây. Trả về kết quả dưới dạng JSON thuần túy, không có markdown.",
+        prompt: `Phân tích kịch bản sau thành 5 cảnh quay. 
+            Kịch bản: ${script}
+            
+            Cấu trúc JSON yêu cầu:
+            {
+              "scenes": [
+                {
+                  "context": "Bối cảnh chi tiết",
+                  "character": "Mô tả nhân vật trong cảnh này",
+                  "action": "Hành động cụ thể",
+                  "expression": "Biểu cảm khuôn mặt",
+                  "dialogue": "Lời thoại",
+                  "intonation": "Ngữ điệu",
+                  "emphasis": "Từ ngữ cần nhấn mạnh",
+                  "voiceLock": "Khóa giọng để đồng nhất"
+                }
+              ]
+            }`,
+        proxyType: proxy_type
+      });
+
+      const content = response.content[0];
+      if (content.type === 'text') {
+        const jsonStr = content.text.replace(/```json|```/g, "").trim();
+        try {
+          res.json(JSON.parse(jsonStr));
+        } catch (parseError: any) {
+          console.error("JSON Parse Error:", jsonStr);
+          res.status(500).json({ 
+            error: "LLM returned invalid JSON format",
+            details: parseError.message,
+            raw: jsonStr.substring(0, 200)
+          });
+        }
+      } else {
+        throw new Error("Unexpected response from LLM");
+      }
+    } catch (error: any) {
+      console.error("Proxy API Error Details:", {
+        message: error.message,
+        status: error.status,
+        baseUrl: baseUrl,
+        model: proxy_model
+      });
+      
+      let suggestion = "Hãy kiểm tra lại API Key và Base URL trong phần Cài đặt.";
+      if (error.status === 403) {
+        suggestion = "Lỗi 403 Forbidden: Proxy hoặc API từ chối yêu cầu. Hãy thử đổi 'Loại Proxy' sang OpenAI.";
+      }
+
+      res.status(error.status || 500).json({ 
+        error: error.message,
+        suggestion: suggestion
+      });
+    }
+  });
+
+  // Vite middleware for development
+  if (process.env.NODE_ENV !== "production") {
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: "spa",
+    });
+    app.use(vite.middlewares);
+  } else {
+    const distPath = path.join(process.cwd(), 'dist');
+    app.use(express.static(distPath));
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  }
+
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+  });
+}
+
+startServer();
