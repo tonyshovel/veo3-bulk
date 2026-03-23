@@ -11,7 +11,7 @@ export class VeoService {
     this.model = model || "veo-3.1-fast-generate-preview";
   }
 
-  async testVeo3(): Promise<boolean> {
+  async testVeo3(): Promise<{ success: boolean; error?: string }> {
     try {
       const response = await fetch("/api/veo/test", {
         method: "POST",
@@ -22,10 +22,16 @@ export class VeoService {
           veo_model: this.model
         }),
       });
-      return response.ok;
-    } catch (error) {
+      
+      const data = await response.json();
+      if (!response.ok) {
+        return { success: false, error: data.error };
+      }
+      
+      return { success: true };
+    } catch (error: any) {
       console.error("Veo3 Test Error:", error);
-      return false;
+      return { success: false, error: error.message };
     }
   }
 

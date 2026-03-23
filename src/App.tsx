@@ -81,9 +81,9 @@ export default function App() {
     setVeoError(null);
     try {
       const veo = new VeoService(veoKey, veoBaseUrl, veoModel);
-      const success = await veo.testVeo3();
-      setTestStatus(prev => ({ ...prev, veo: success ? 'success' : 'failed' }));
-      if (!success) setVeoError("Lỗi kết nối Veo 3 (Gemini). Hãy kiểm tra API Key.");
+      const result = await veo.testVeo3();
+      setTestStatus(prev => ({ ...prev, veo: result.success ? 'success' : 'failed' }));
+      if (!result.success) setVeoError(result.error || "Lỗi kết nối Veo 3 (Gemini). Hãy kiểm tra API Key.");
     } catch (err: any) {
       setTestStatus(prev => ({ ...prev, veo: 'failed' }));
       setVeoError(err.message);
