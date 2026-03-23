@@ -67,11 +67,12 @@ export class VeoService {
     try {
       data = JSON.parse(responseText);
     } catch (e) {
-      throw new Error(`Server returned non-JSON response: ${responseText.substring(0, 100)}...`);
+      throw new Error(`Server returned non-JSON response (${response.status}): ${responseText.substring(0, 200)}...`);
     }
 
     if (!response.ok) {
-      throw new Error(data.error || "Failed to start video generation");
+      const errorMsg = data.error || data.details || "Failed to start video generation";
+      throw new Error(`${errorMsg} (HTTP ${response.status})`);
     }
 
     let operation = data;

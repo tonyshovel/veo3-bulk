@@ -625,7 +625,12 @@ export default function App() {
                         )}
 
                         {result.status === 'failed' && (
-                          <p className="text-xs text-red-400 mt-2">{result.error}</p>
+                          <div className="mt-2 p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
+                            <p className="text-[10px] font-bold text-red-400 uppercase tracking-widest mb-1">Lỗi hệ thống:</p>
+                            <p className="text-xs text-red-400/80 font-mono break-all max-h-32 overflow-y-auto">
+                              {result.error}
+                            </p>
+                          </div>
                         )}
 
                         {item?.scene && (

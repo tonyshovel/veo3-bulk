@@ -290,11 +290,25 @@ async function startServer() {
 
     try {
       let cleanBaseUrl = baseUrl.replace(/\/$/, '');
-      const hasVersion = cleanBaseUrl.includes('/v1') || cleanBaseUrl.includes('/v1beta');
       
-      const url = hasVersion
-        ? `${cleanBaseUrl}/models/${model}:generateVideos?key=${apiKey}`
-        : `${cleanBaseUrl}/v1beta/models/${model}:generateVideos?key=${apiKey}`;
+      // Construct URL carefully
+      let url: string;
+      if (cleanBaseUrl.includes('googleapis.com')) {
+        // Official Google API - always use v1beta for Veo 3.1
+        // Use header for API key instead of query param for better compatibility
+        url = `${cleanBaseUrl}/v1beta/models/${model}:generateVideos`;
+      } else {
+        // Proxy - might already have version or different structure
+        const hasVersion = cleanBaseUrl.includes('/v1') || cleanBaseUrl.includes('/v1beta');
+        url = hasVersion
+          ? `${cleanBaseUrl}/models/${model}:generateVideos`
+          : `${cleanBaseUrl}/v1beta/models/${model}:generateVideos`;
+        
+        // If it's a proxy, we might still need the key in the URL if it doesn't support headers
+        if (!url.includes('key=')) {
+          url += `?key=${apiKey}`;
+        }
+      }
       
       const response = await fetch(url, {
         method: 'POST',
@@ -314,10 +328,17 @@ async function startServer() {
       try { data = JSON.parse(responseText); } catch (e) { /* Not JSON */ }
 
       if (!response.ok) {
-        return res.status(response.status).json({ error: data.error?.message || responseText || "Failed to start generation" });
+        console.error("Veo Generate Error:", response.status, responseText);
+        const errorMessage = data.error?.message || responseText || "Failed to start generation";
+        return res.status(response.status).json({ 
+          error: errorMessage,
+          status: response.status,
+          details: responseText.substring(0, 1000)
+        });
       }
       res.json(data);
     } catch (error: any) {
+      console.error("Veo Generate Exception:", error);
       res.status(500).json({ error: error.message });
     }
   });
