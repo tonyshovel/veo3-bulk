@@ -15,7 +15,8 @@ import {
   Settings,
   X
 } from 'lucide-react';
-import { GeminiService } from './services/geminiService';
+import { LLMService } from './services/llmService';
+import { VeoService } from './services/veoService';
 import { Scene, ScriptBreakdown, VideoResult } from './types';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -34,69 +35,57 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   
-  // API Settings
-  const [apiBaseUrl, setApiBaseUrl] = useState(localStorage.getItem('api_base_url') || import.meta.env.VITE_API_BASE_URL || 'https://api.shopaikey.com');
-  const [proxyKey, setProxyKey] = useState(localStorage.getItem('proxy_api_key') || localStorage.getItem('claude_api_key') || '');
-  const [proxyModel, setProxyModel] = useState(localStorage.getItem('proxy_model') || localStorage.getItem('claude_model') || 'claude-3-5-sonnet-20240620');
-  const [proxyType, setProxyType] = useState<'openai' | 'anthropic'>(localStorage.getItem('proxy_type') as any || 'openai');
-  const [veo3Key, setVeo3Key] = useState(localStorage.getItem('veo3_api_key') || import.meta.env.VITE_GEMINI_API_KEY || '');
-  const [testStatus, setTestStatus] = useState<{ proxy?: 'testing' | 'success' | 'failed', veo3?: 'testing' | 'success' | 'failed' }>({});
-  const [proxyError, setProxyError] = useState<string | null>(null);
+  // API Settings - LLM (Script Analysis)
+  const [llmBaseUrl, setLlmBaseUrl] = useState(localStorage.getItem('llm_base_url') || import.meta.env.VITE_API_BASE_URL || 'https://api.shopaikey.com/v1');
+  const [llmKey, setLlmKey] = useState(localStorage.getItem('llm_api_key') || '');
+  const [llmModel, setLlmModel] = useState(localStorage.getItem('llm_model') || 'claude-3-5-sonnet-20240620');
+  const [llmProxyType, setLlmProxyType] = useState<'openai' | 'anthropic'>(localStorage.getItem('llm_proxy_type') as any || 'openai');
+  
+  // API Settings - Veo 3 (Video Generation)
+  const [veoBaseUrl, setVeoBaseUrl] = useState(localStorage.getItem('veo_base_url') || 'https://generativelanguage.googleapis.com');
+  const [veoKey, setVeoKey] = useState(localStorage.getItem('veo_api_key') || import.meta.env.VITE_GEMINI_API_KEY || '');
+  
+  const [testStatus, setTestStatus] = useState<{ llm?: 'testing' | 'success' | 'failed', veo?: 'testing' | 'success' | 'failed' }>({});
+  const [llmError, setLlmError] = useState<string | null>(null);
+  const [veoError, setVeoError] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    localStorage.setItem('api_base_url', apiBaseUrl);
-    localStorage.setItem('proxy_api_key', proxyKey);
-    localStorage.setItem('proxy_model', proxyModel);
-    localStorage.setItem('proxy_type', proxyType);
-    localStorage.setItem('veo3_api_key', veo3Key);
-  }, [apiBaseUrl, proxyKey, proxyModel, proxyType, veo3Key]);
+    localStorage.setItem('llm_base_url', llmBaseUrl);
+    localStorage.setItem('llm_api_key', llmKey);
+    localStorage.setItem('llm_model', llmModel);
+    localStorage.setItem('llm_proxy_type', llmProxyType);
+    localStorage.setItem('veo_base_url', veoBaseUrl);
+    localStorage.setItem('veo_api_key', veoKey);
+  }, [llmBaseUrl, llmKey, llmModel, llmProxyType, veoBaseUrl, veoKey]);
 
-  const handleTestProxy = async () => {
-    setTestStatus(prev => ({ ...prev, proxy: 'testing' }));
-    setProxyError(null);
-    try {
-      const response = await fetch("/api/test-proxy", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          proxy_api_key: proxyKey,
-          api_base_url: apiBaseUrl,
-          proxy_model: proxyModel,
-          proxy_type: proxyType
-        }),
-      });
-      
-      const contentType = response.headers.get("content-type");
-      if (contentType && contentType.includes("application/json")) {
-        const data = await response.json();
-        if (response.ok) {
-          setTestStatus(prev => ({ ...prev, proxy: 'success' }));
-        } else {
-          setTestStatus(prev => ({ ...prev, proxy: 'failed' }));
-          let errorMsg = data.error || data.details || "Lỗi không xác định";
-          if (response.status === 403) {
-            errorMsg = "Lỗi 403 Forbidden: Proxy hoặc API từ chối yêu cầu. Hãy kiểm tra lại API Key hoặc thử đổi Base URL (thêm /v1 vào cuối).";
-          }
-          setProxyError(errorMsg);
-        }
-      } else {
-        const text = await response.text();
-        setTestStatus(prev => ({ ...prev, proxy: 'failed' }));
-        setProxyError(`Server returned non-JSON response: ${text.substring(0, 100)}... Hãy thử thêm /v1 vào Base URL.`);
-      }
-    } catch (err: any) {
-      setTestStatus(prev => ({ ...prev, proxy: 'failed' }));
-      setProxyError(err.message);
+  const handleTestLLM = async () => {
+    setTestStatus(prev => ({ ...prev, llm: 'testing' }));
+    setLlmError(null);
+    const llm = new LLMService(llmKey, llmBaseUrl, llmModel, llmProxyType);
+    const result = await llm.testProxy();
+    
+    if (result.success) {
+      setTestStatus(prev => ({ ...prev, llm: 'success' }));
+    } else {
+      setTestStatus(prev => ({ ...prev, llm: 'failed' }));
+      setLlmError(result.error || result.suggestion || "Lỗi kết nối LLM");
     }
   };
 
-  const handleTestVeo3 = async () => {
-    setTestStatus(prev => ({ ...prev, veo3: 'testing' }));
-    const gemini = new GeminiService(veo3Key, apiBaseUrl, proxyKey);
-    const success = await gemini.testVeo3();
-    setTestStatus(prev => ({ ...prev, veo3: success ? 'success' : 'failed' }));
+  const handleTestVeo = async () => {
+    setTestStatus(prev => ({ ...prev, veo: 'testing' }));
+    setVeoError(null);
+    try {
+      const veo = new VeoService(veoKey, veoBaseUrl);
+      const success = await veo.testVeo3();
+      setTestStatus(prev => ({ ...prev, veo: success ? 'success' : 'failed' }));
+      if (!success) setVeoError("Lỗi kết nối Veo 3 (Gemini). Hãy kiểm tra API Key.");
+    } catch (err: any) {
+      setTestStatus(prev => ({ ...prev, veo: 'failed' }));
+      setVeoError(err.message);
+    }
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -120,8 +109,8 @@ export default function App() {
       return;
     }
 
-    if (!veo3Key) {
-      setError("Vui lòng cấu hình Veo3 API Key trong phần Cài đặt.");
+    if (!veoKey) {
+      setError("Vui lòng cấu hình Veo 3 API Key trong phần Cài đặt.");
       setShowSettings(true);
       return;
     }
@@ -132,14 +121,15 @@ export default function App() {
     setAllParsedScenes([]);
 
     try {
-      const gemini = new GeminiService(veo3Key, apiBaseUrl, proxyKey);
+      const llm = new LLMService(llmKey, llmBaseUrl, llmModel, llmProxyType);
+      const veo = new VeoService(veoKey, veoBaseUrl);
       
       const scripts = isBulkMode ? script.split('---').map(s => s.trim()).filter(s => s) : [script];
       
       // 1. Parse all scripts first
       const parsedScenes: { scriptIdx: number; scene: Scene; sceneIdx: number }[] = [];
       for (let i = 0; i < scripts.length; i++) {
-        const parsed = await gemini.parseScript(scripts[i], proxyModel, proxyType);
+        const parsed = await llm.parseScript(scripts[i]);
         parsed.scenes.forEach((scene, sceneIdx) => {
           parsedScenes.push({ scriptIdx: i, scene, sceneIdx });
         });
@@ -169,7 +159,7 @@ export default function App() {
         setResults(prev => prev.map((res, idx) => idx === globalIdx ? { ...res, status: 'processing' } : res));
         
         try {
-          const videoUrl = await gemini.generateVideo(item.scene, characterImage);
+          const videoUrl = await veo.generateVideo(item.scene, characterImage);
           setResults(prev => prev.map((res, idx) => idx === globalIdx ? { ...res, status: 'completed', videoUrl } : res));
         } catch (err: any) {
           console.error(`Error generating scene ${globalIdx}:`, err);
@@ -232,12 +222,12 @@ export default function App() {
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative w-full max-w-md bg-[#111] border border-white/10 rounded-3xl p-8 shadow-2xl"
+              className="relative w-full max-w-2xl bg-[#111] border border-white/10 rounded-3xl p-8 shadow-2xl max-h-[90vh] overflow-y-auto"
             >
               <div className="flex items-center justify-between mb-8">
                 <h2 className="text-xl font-semibold flex items-center gap-3">
                   <Settings className="w-5 h-5 text-orange-500" />
-                  Cài đặt API
+                  Cấu hình API Riêng biệt
                 </h2>
                 <button 
                   onClick={() => setShowSettings(false)}
@@ -247,111 +237,134 @@ export default function App() {
                 </button>
               </div>
 
-              <div className="space-y-6">
-                <div>
-                  <label className="block text-[10px] uppercase tracking-widest text-white/40 mb-2 font-semibold">Server API Base URL</label>
-                  <input 
-                    type="text" 
-                    value={apiBaseUrl}
-                    onChange={(e) => setApiBaseUrl(e.target.value)}
-                    placeholder="https://api.shopaikey.com"
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-500/50 transition-all font-mono"
-                  />
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="block text-[10px] uppercase tracking-widest text-white/40 font-semibold">Proxy API Key (LLM)</label>
-                    <button 
-                      onClick={handleTestProxy}
-                      disabled={testStatus.proxy === 'testing'}
-                      className={cn(
-                        "text-[10px] uppercase tracking-wider px-2 py-1 rounded border transition-all",
-                        testStatus.proxy === 'success' ? "border-emerald-500/50 text-emerald-400" :
-                        testStatus.proxy === 'failed' ? "border-red-500/50 text-red-400" :
-                        "border-white/10 text-white/40 hover:text-white/60"
-                      )}
-                    >
-                      {testStatus.proxy === 'testing' ? "Đang thử..." : 
-                       testStatus.proxy === 'success' ? "Kết nối OK" :
-                       testStatus.proxy === 'failed' ? "Lỗi kết nối" : "Test Proxy"}
-                    </button>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                {/* LLM Section */}
+                <div className="space-y-6">
+                  <h3 className="text-xs font-bold text-orange-500 uppercase tracking-widest border-b border-orange-500/20 pb-2">1. AI Model (Phân tích)</h3>
+                  
+                  <div>
+                    <label className="block text-[10px] uppercase tracking-widest text-white/40 mb-2 font-semibold">LLM API Base URL</label>
+                    <input 
+                      type="text" 
+                      value={llmBaseUrl}
+                      onChange={(e) => setLlmBaseUrl(e.target.value)}
+                      placeholder="https://api.shopaikey.com/v1"
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-500/50 transition-all font-mono"
+                    />
                   </div>
-                  <input 
-                    type="password" 
-                    value={proxyKey}
-                    onChange={(e) => setProxyKey(e.target.value)}
-                    placeholder="sk-..."
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-500/50 transition-all font-mono"
-                  />
-                  {proxyError && (
-                    <p className="mt-2 text-[10px] text-red-400/80 bg-red-500/10 p-2 rounded-lg border border-red-500/20">
-                      {proxyError}
-                    </p>
-                  )}
-                </div>
 
-                <div>
-                  <label className="block text-[10px] uppercase tracking-widest text-white/40 mb-2 font-semibold">Loại Proxy</label>
-                  <select 
-                    value={proxyType}
-                    onChange={(e) => setProxyType(e.target.value as any)}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-500/50 transition-all"
-                  >
-                    <option value="openai" className="bg-[#111]">OpenAI Compatible (GPT/Gemini/Claude Proxy)</option>
-                    <option value="anthropic" className="bg-[#111]">Anthropic Compatible (Claude Direct)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-[10px] uppercase tracking-widest text-white/40 mb-2 font-semibold">Model Name (GPT/Claude/Gemini...)</label>
-                  <input 
-                    type="text" 
-                    value={proxyModel}
-                    onChange={(e) => setProxyModel(e.target.value)}
-                    placeholder="claude-3-5-sonnet-20240620"
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-500/50 transition-all font-mono"
-                  />
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="block text-[10px] uppercase tracking-widest text-white/40 font-semibold">Veo3 API Key</label>
-                    <button 
-                      onClick={handleTestVeo3}
-                      disabled={testStatus.veo3 === 'testing'}
-                      className={cn(
-                        "text-[10px] uppercase tracking-wider px-2 py-1 rounded border transition-all",
-                        testStatus.veo3 === 'success' ? "border-emerald-500/50 text-emerald-400" :
-                        testStatus.veo3 === 'failed' ? "border-red-500/50 text-red-400" :
-                        "border-white/10 text-white/40 hover:text-white/60"
-                      )}
-                    >
-                      {testStatus.veo3 === 'testing' ? "Đang thử..." : 
-                       testStatus.veo3 === 'success' ? "Kết nối OK" :
-                       testStatus.veo3 === 'failed' ? "Lỗi kết nối" : "Test Veo3"}
-                    </button>
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="block text-[10px] uppercase tracking-widest text-white/40 font-semibold">LLM API Key</label>
+                      <button 
+                        onClick={handleTestLLM}
+                        disabled={testStatus.llm === 'testing'}
+                        className={cn(
+                          "text-[10px] uppercase tracking-wider px-2 py-1 rounded border transition-all",
+                          testStatus.llm === 'success' ? "border-emerald-500/50 text-emerald-400" :
+                          testStatus.llm === 'failed' ? "border-red-500/50 text-red-400" :
+                          "border-white/10 text-white/40 hover:text-white/60"
+                        )}
+                      >
+                        {testStatus.llm === 'testing' ? "Đang thử..." : 
+                         testStatus.llm === 'success' ? "OK" :
+                         testStatus.llm === 'failed' ? "Lỗi" : "Test LLM"}
+                      </button>
+                    </div>
+                    <input 
+                      type="password" 
+                      value={llmKey}
+                      onChange={(e) => setLlmKey(e.target.value)}
+                      placeholder="sk-..."
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-500/50 transition-all font-mono"
+                    />
+                    {llmError && (
+                      <p className="mt-2 text-[10px] text-red-400/80 bg-red-500/10 p-2 rounded-lg border border-red-500/20">
+                        {llmError}
+                      </p>
+                    )}
                   </div>
-                  <input 
-                    type="password" 
-                    value={veo3Key}
-                    onChange={(e) => setVeo3Key(e.target.value)}
-                    placeholder="sk-..."
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-500/50 transition-all font-mono"
-                  />
+
+                  <div>
+                    <label className="block text-[10px] uppercase tracking-widest text-white/40 mb-2 font-semibold">Loại Proxy</label>
+                    <select 
+                      value={llmProxyType}
+                      onChange={(e) => setLlmProxyType(e.target.value as any)}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-500/50 transition-all"
+                    >
+                      <option value="openai" className="bg-[#111]">OpenAI Compatible</option>
+                      <option value="anthropic" className="bg-[#111]">Anthropic Compatible</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] uppercase tracking-widest text-white/40 mb-2 font-semibold">Model Name</label>
+                    <input 
+                      type="text" 
+                      value={llmModel}
+                      onChange={(e) => setLlmModel(e.target.value)}
+                      placeholder="claude-3-5-sonnet-20240620"
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-500/50 transition-all font-mono"
+                    />
+                  </div>
                 </div>
 
-                <div className="pt-4">
-                  <button 
-                    onClick={() => setShowSettings(false)}
-                    className="w-full py-3 bg-orange-500 hover:bg-orange-400 text-black font-bold rounded-xl transition-all"
-                  >
-                    Lưu cài đặt
-                  </button>
-                  <p className="text-[10px] text-white/20 mt-4 text-center italic">
-                    Cài đặt được lưu trữ cục bộ trên trình duyệt của bạn.
-                  </p>
+                {/* Veo Section */}
+                <div className="space-y-6">
+                  <h3 className="text-xs font-bold text-orange-500 uppercase tracking-widest border-b border-orange-500/20 pb-2">2. Veo 3 (Tạo Video)</h3>
+                  
+                  <div>
+                    <label className="block text-[10px] uppercase tracking-widest text-white/40 mb-2 font-semibold">Veo 3 Base URL (Tùy chọn)</label>
+                    <input 
+                      type="text" 
+                      value={veoBaseUrl}
+                      onChange={(e) => setVeoBaseUrl(e.target.value)}
+                      placeholder="Để trống nếu dùng trực tiếp Google"
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-500/50 transition-all font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="block text-[10px] uppercase tracking-widest text-white/40 font-semibold">Veo 3 API Key</label>
+                      <button 
+                        onClick={handleTestVeo}
+                        disabled={testStatus.veo === 'testing'}
+                        className={cn(
+                          "text-[10px] uppercase tracking-wider px-2 py-1 rounded border transition-all",
+                          testStatus.veo === 'success' ? "border-emerald-500/50 text-emerald-400" :
+                          testStatus.veo === 'failed' ? "border-red-500/50 text-red-400" :
+                          "border-white/10 text-white/40 hover:text-white/60"
+                        )}
+                      >
+                        {testStatus.veo === 'testing' ? "Đang thử..." : 
+                         testStatus.veo === 'success' ? "OK" :
+                         testStatus.veo === 'failed' ? "Lỗi" : "Test Veo"}
+                      </button>
+                    </div>
+                    <input 
+                      type="password" 
+                      value={veoKey}
+                      onChange={(e) => setVeoKey(e.target.value)}
+                      placeholder="AIza..."
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-500/50 transition-all font-mono"
+                    />
+                    {veoError && (
+                      <p className="mt-2 text-[10px] text-red-400/80 bg-red-500/10 p-2 rounded-lg border border-red-500/20">
+                        {veoError}
+                      </p>
+                    )}
+                  </div>
                 </div>
+              </div>
+
+              <div className="mt-12 pt-8 border-t border-white/10">
+                <button 
+                  onClick={() => setShowSettings(false)}
+                  className="w-full py-4 bg-orange-500 hover:bg-orange-400 text-black font-bold rounded-2xl transition-all text-lg"
+                >
+                  Lưu & Đóng
+                </button>
               </div>
             </motion.div>
           </div>

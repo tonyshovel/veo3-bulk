@@ -12,11 +12,6 @@ async function startServer() {
 
   app.use(express.json());
 
-  const anthropic = new Anthropic({
-    apiKey: process.env.CLAUDE_API_KEY || "",
-    baseURL: process.env.VITE_API_BASE_URL || undefined,
-  });
-
   // Helper for Universal LLM calling
   async function callLLM(params: {
     apiKey: string,
@@ -201,6 +196,90 @@ async function startServer() {
         error: error.message,
         suggestion: suggestion
       });
+    }
+  });
+
+  // --- VEO 3 / GEMINI PROXY ROUTES ---
+  
+  app.post("/api/veo/test", async (req, res) => {
+    const { veo_api_key, veo_base_url } = req.body;
+    const apiKey = veo_api_key || process.env.VITE_GEMINI_API_KEY;
+    const baseUrl = veo_base_url || "https://generativelanguage.googleapis.com";
+
+    try {
+      const url = `${baseUrl.replace(/\/$/, '')}/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents: [{ parts: [{ text: "Hi" }] }] })
+      });
+
+      if (!response.ok) throw new Error(await response.text());
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/veo/generate", async (req, res) => {
+    const { veo_api_key, veo_base_url, prompt, image, config } = req.body;
+    const apiKey = veo_api_key || process.env.VITE_GEMINI_API_KEY;
+    const baseUrl = veo_base_url || "https://generativelanguage.googleapis.com";
+
+    try {
+      const url = `${baseUrl.replace(/\/$/, '')}/v1beta/models/veo-3.1-fast-generate-preview:generateVideos?key=${apiKey}`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt,
+          ...(image ? { image } : {}),
+          config
+        })
+      });
+
+      if (!response.ok) throw new Error(await response.text());
+      const data = await response.json();
+      res.json(data);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/veo/status", async (req, res) => {
+    const { veo_api_key, veo_base_url, operation_name } = req.body;
+    const apiKey = veo_api_key || process.env.VITE_GEMINI_API_KEY;
+    const baseUrl = veo_base_url || "https://generativelanguage.googleapis.com";
+
+    try {
+      const url = `${baseUrl.replace(/\/$/, '')}/v1beta/${operation_name}?key=${apiKey}`;
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(await response.text());
+      const data = await response.json();
+      res.json(data);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/veo/download", async (req, res) => {
+    const uri = req.query.uri as string;
+    const apiKey = req.query.key as string || process.env.VITE_GEMINI_API_KEY;
+
+    if (!uri) return res.status(400).send("Missing URI");
+
+    try {
+      const response = await fetch(uri, {
+        headers: { 'x-goog-api-key': apiKey || "" }
+      });
+      
+      if (!response.ok) throw new Error("Failed to download video");
+
+      res.setHeader('Content-Type', 'video/mp4');
+      // @ts-ignore
+      response.body.pipe(res);
+    } catch (error: any) {
+      res.status(500).send(error.message);
     }
   });
 
