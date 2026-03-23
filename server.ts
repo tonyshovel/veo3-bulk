@@ -10,7 +10,8 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  app.use(express.json());
+  app.use(express.json({ limit: '50mb' }));
+  app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
   // Helper for Universal LLM calling
   async function callLLM(params: {
@@ -20,12 +21,17 @@ async function startServer() {
     system?: string,
     prompt: string,
     maxTokens?: number,
-    proxyType?: 'openai' | 'anthropic'
+    proxyType?: 'openai' | 'anthropic' | 'gemini'
   }) {
     const { apiKey, baseUrl, model, system, prompt, maxTokens, proxyType } = params;
     
     // Default to OpenAI if it's a multi-model proxy, unless specified
-    const type = proxyType || (baseUrl.includes('anthropic.com') ? 'anthropic' : 'openai');
+    let type = proxyType;
+    if (!type) {
+      if (baseUrl.includes('anthropic.com')) type = 'anthropic';
+      else if (baseUrl.includes('googleapis.com')) type = 'gemini';
+      else type = 'openai';
+    }
 
     const commonHeaders = {
       "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
@@ -45,6 +51,36 @@ async function startServer() {
         system: system,
         messages: [{ role: "user", content: prompt }],
       });
+    } else if (type === 'gemini') {
+      // Native Gemini REST API
+      const cleanBaseUrl = (baseUrl || "https://generativelanguage.googleapis.com").replace(/\/$/, '');
+      const url = `${cleanBaseUrl}/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: commonHeaders,
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          system_instruction: system ? { parts: [{ text: system }] } : undefined,
+          generationConfig: {
+            maxOutputTokens: maxTokens || 2048,
+            temperature: 0.7
+          }
+        })
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`Gemini API Error (${response.status}): ${text}`);
+      }
+
+      const data = await response.json();
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      
+      return {
+        model: model,
+        content: [{ type: 'text', text: text }]
+      };
     } else {
       // OpenAI Compatible
       const url = baseUrl.endsWith('/') ? `${baseUrl}chat/completions` : `${baseUrl}/chat/completions`;
@@ -98,7 +134,7 @@ async function startServer() {
       const response = await callLLM({
         apiKey,
         baseUrl,
-        model: proxy_model || "claude-3-5-sonnet-20240620",
+        model: proxy_model || (proxy_type === 'gemini' ? "gemini-1.5-flash" : "claude-3-5-sonnet-20240620"),
         prompt: "Hi",
         maxTokens: 10,
         proxyType: proxy_type
@@ -139,7 +175,7 @@ async function startServer() {
       const response = await callLLM({
         apiKey,
         baseUrl,
-        model: proxy_model || "claude-3-5-sonnet-20240620",
+        model: proxy_model || (proxy_type === 'gemini' ? "gemini-1.5-flash" : "claude-3-5-sonnet-20240620"),
         maxTokens: 4000,
         system: "Bạn là một chuyên gia phân tích kịch bản phim. Hãy phân tích kịch bản thành 5 cảnh quay, mỗi cảnh 8 giây. Trả về kết quả dưới dạng JSON thuần túy, không có markdown.",
         prompt: `Phân tích kịch bản sau thành 5 cảnh quay. 

@@ -36,14 +36,14 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   
   // API Settings - LLM (Script Analysis)
-  const [llmBaseUrl, setLlmBaseUrl] = useState(localStorage.getItem('llm_base_url') || import.meta.env.VITE_API_BASE_URL || 'https://api.shopaikey.com/v1');
-  const [llmKey, setLlmKey] = useState(localStorage.getItem('llm_api_key') || '');
-  const [llmModel, setLlmModel] = useState(localStorage.getItem('llm_model') || 'claude-3-5-sonnet-20240620');
-  const [llmProxyType, setLlmProxyType] = useState<'openai' | 'anthropic'>(localStorage.getItem('llm_proxy_type') as any || 'openai');
+  const [llmBaseUrl, setLlmBaseUrl] = useState(localStorage.getItem('llm_base_url') || 'https://generativelanguage.googleapis.com');
+  const [llmKey, setLlmKey] = useState(localStorage.getItem('llm_api_key') || 'AIzaSyBR-OnYVB2E8MenKuKlfpoMiDXVA_o0ULg');
+  const [llmModel, setLlmModel] = useState(localStorage.getItem('llm_model') || 'gemini-1.5-flash');
+  const [llmProxyType, setLlmProxyType] = useState<'openai' | 'anthropic' | 'gemini'>(localStorage.getItem('llm_proxy_type') as any || 'gemini');
   
   // API Settings - Veo 3 (Video Generation)
   const [veoBaseUrl, setVeoBaseUrl] = useState(localStorage.getItem('veo_base_url') || 'https://generativelanguage.googleapis.com');
-  const [veoKey, setVeoKey] = useState(localStorage.getItem('veo_api_key') || import.meta.env.VITE_GEMINI_API_KEY || '');
+  const [veoKey, setVeoKey] = useState(localStorage.getItem('veo_api_key') || 'AIzaSyBR-OnYVB2E8MenKuKlfpoMiDXVA_o0ULg');
   const [veoModel, setVeoModel] = useState(localStorage.getItem('veo_model') || 'veo-3.1-fast-generate-preview');
   
   const [testStatus, setTestStatus] = useState<{ llm?: 'testing' | 'success' | 'failed', veo?: 'testing' | 'success' | 'failed' }>({});
@@ -227,10 +227,27 @@ export default function App() {
               className="relative w-full max-w-2xl bg-[#111] border border-white/10 rounded-3xl p-8 shadow-2xl max-h-[90vh] overflow-y-auto"
             >
               <div className="flex items-center justify-between mb-8">
-                <h2 className="text-xl font-semibold flex items-center gap-3">
-                  <Settings className="w-5 h-5 text-orange-500" />
-                  Cấu hình API Riêng biệt
-                </h2>
+                <div className="flex items-center gap-3">
+                  <h2 className="text-xl font-semibold flex items-center gap-3">
+                    <Settings className="w-5 h-5 text-orange-500" />
+                    Cấu hình API Riêng biệt
+                  </h2>
+                  <button 
+                    onClick={() => {
+                      const key = 'AIzaSyBR-OnYVB2E8MenKuKlfpoMiDXVA_o0ULg';
+                      setLlmBaseUrl('https://generativelanguage.googleapis.com');
+                      setLlmKey(key);
+                      setLlmModel('gemini-1.5-flash');
+                      setLlmProxyType('gemini');
+                      setVeoBaseUrl('https://generativelanguage.googleapis.com');
+                      setVeoKey(key);
+                      setVeoModel('veo-3.1-fast-generate-preview');
+                    }}
+                    className="text-[10px] bg-orange-500/10 text-orange-500 border border-orange-500/20 px-2 py-1 rounded-full hover:bg-orange-500/20 transition-all"
+                  >
+                    Reset to Gemini
+                  </button>
+                </div>
                 <button 
                   onClick={() => setShowSettings(false)}
                   className="p-2 hover:bg-white/5 rounded-full transition-colors"
@@ -294,6 +311,7 @@ export default function App() {
                       onChange={(e) => setLlmProxyType(e.target.value as any)}
                       className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-500/50 transition-all"
                     >
+                      <option value="gemini" className="bg-[#111]">Google Gemini (Official)</option>
                       <option value="openai" className="bg-[#111]">OpenAI Compatible</option>
                       <option value="anthropic" className="bg-[#111]">Anthropic Compatible</option>
                     </select>
@@ -305,7 +323,7 @@ export default function App() {
                       type="text" 
                       value={llmModel}
                       onChange={(e) => setLlmModel(e.target.value)}
-                      placeholder="claude-3-5-sonnet-20240620"
+                      placeholder="gemini-1.5-flash"
                       className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-500/50 transition-all font-mono"
                     />
                   </div>
@@ -315,6 +333,28 @@ export default function App() {
                 <div className="space-y-6">
                   <h3 className="text-xs font-bold text-orange-500 uppercase tracking-widest border-b border-orange-500/20 pb-2">2. Veo 3 (Tạo Video)</h3>
                   
+                  <div>
+                    <label className="block text-[10px] uppercase tracking-widest text-white/40 mb-2 font-semibold">Provider Preset</label>
+                    <select 
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-500/50 transition-all"
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === 'google') {
+                          setVeoBaseUrl('https://generativelanguage.googleapis.com');
+                          setVeoModel('veo-3.1-fast-generate-preview');
+                        } else if (val === 'shopaikey') {
+                          setVeoBaseUrl('https://api.shopaikey.com');
+                          setVeoModel('veo-3.1-fast-generate-preview');
+                        }
+                      }}
+                    >
+                      <option value="" className="bg-[#111]">-- Chọn Provider --</option>
+                      <option value="google" className="bg-[#111]">Google AI Studio (Official)</option>
+                      <option value="shopaikey" className="bg-[#111]">ShopAIKey Proxy (Sử dụng Credit)</option>
+                      <option value="custom" className="bg-[#111]">Tùy chỉnh</option>
+                    </select>
+                  </div>
+
                   <div>
                     <label className="block text-[10px] uppercase tracking-widest text-white/40 mb-2 font-semibold">Veo 3 Base URL (Tùy chọn)</label>
                     <input 
@@ -367,6 +407,15 @@ export default function App() {
                       placeholder="veo-3.1-fast-generate-preview"
                       className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-500/50 transition-all font-mono"
                     />
+                  </div>
+
+                  <div className="p-3 bg-emerald-500/5 border border-emerald-500/10 rounded-xl">
+                    <p className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest mb-1">Mẹo tận dụng Credit:</p>
+                    <ul className="text-[9px] text-white/40 list-disc list-inside space-y-1">
+                      <li>Chọn <b>ShopAIKey Proxy</b> nếu bạn đã mua gói Credit từ bên thứ 3.</li>
+                      <li>Sử dụng model <b>fast</b> để tiết kiệm credit và thời gian tạo.</li>
+                      <li>Đảm bảo <b>API Key</b> là key được cấp từ nền tảng đó.</li>
+                    </ul>
                   </div>
                 </div>
               </div>
