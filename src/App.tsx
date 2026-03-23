@@ -44,6 +44,7 @@ export default function App() {
   // API Settings - Veo 3 (Video Generation)
   const [veoBaseUrl, setVeoBaseUrl] = useState(localStorage.getItem('veo_base_url') || 'https://generativelanguage.googleapis.com');
   const [veoKey, setVeoKey] = useState(localStorage.getItem('veo_api_key') || import.meta.env.VITE_GEMINI_API_KEY || '');
+  const [veoModel, setVeoModel] = useState(localStorage.getItem('veo_model') || 'veo-3.1-fast-generate-preview');
   
   const [testStatus, setTestStatus] = useState<{ llm?: 'testing' | 'success' | 'failed', veo?: 'testing' | 'success' | 'failed' }>({});
   const [llmError, setLlmError] = useState<string | null>(null);
@@ -58,7 +59,8 @@ export default function App() {
     localStorage.setItem('llm_proxy_type', llmProxyType);
     localStorage.setItem('veo_base_url', veoBaseUrl);
     localStorage.setItem('veo_api_key', veoKey);
-  }, [llmBaseUrl, llmKey, llmModel, llmProxyType, veoBaseUrl, veoKey]);
+    localStorage.setItem('veo_model', veoModel);
+  }, [llmBaseUrl, llmKey, llmModel, llmProxyType, veoBaseUrl, veoKey, veoModel]);
 
   const handleTestLLM = async () => {
     setTestStatus(prev => ({ ...prev, llm: 'testing' }));
@@ -78,7 +80,7 @@ export default function App() {
     setTestStatus(prev => ({ ...prev, veo: 'testing' }));
     setVeoError(null);
     try {
-      const veo = new VeoService(veoKey, veoBaseUrl);
+      const veo = new VeoService(veoKey, veoBaseUrl, veoModel);
       const success = await veo.testVeo3();
       setTestStatus(prev => ({ ...prev, veo: success ? 'success' : 'failed' }));
       if (!success) setVeoError("Lỗi kết nối Veo 3 (Gemini). Hãy kiểm tra API Key.");
@@ -122,7 +124,7 @@ export default function App() {
 
     try {
       const llm = new LLMService(llmKey, llmBaseUrl, llmModel, llmProxyType);
-      const veo = new VeoService(veoKey, veoBaseUrl);
+      const veo = new VeoService(veoKey, veoBaseUrl, veoModel);
       
       const scripts = isBulkMode ? script.split('---').map(s => s.trim()).filter(s => s) : [script];
       
@@ -354,6 +356,17 @@ export default function App() {
                         {veoError}
                       </p>
                     )}
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] uppercase tracking-widest text-white/40 mb-2 font-semibold">Model Name</label>
+                    <input 
+                      type="text" 
+                      value={veoModel}
+                      onChange={(e) => setVeoModel(e.target.value)}
+                      placeholder="veo-3.1-fast-generate-preview"
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-500/50 transition-all font-mono"
+                    />
                   </div>
                 </div>
               </div>

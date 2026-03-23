@@ -3,10 +3,12 @@ import { Scene } from "../types";
 export class VeoService {
   private apiKey: string;
   private baseUrl: string;
+  private model: string;
 
-  constructor(apiKey: string, baseUrl?: string) {
+  constructor(apiKey: string, baseUrl?: string, model?: string) {
     this.apiKey = apiKey;
     this.baseUrl = baseUrl || "https://generativelanguage.googleapis.com";
+    this.model = model || "veo-3.1-fast-generate-preview";
   }
 
   async testVeo3(): Promise<boolean> {
@@ -16,7 +18,8 @@ export class VeoService {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
           veo_api_key: this.apiKey,
-          veo_base_url: this.baseUrl
+          veo_base_url: this.baseUrl,
+          veo_model: this.model
         }),
       });
       return response.ok;
@@ -39,6 +42,7 @@ export class VeoService {
       body: JSON.stringify({
         veo_api_key: this.apiKey,
         veo_base_url: this.baseUrl,
+        veo_model: this.model,
         prompt,
         image: base64Image ? {
           imageBytes: base64Image.split(',')[1],
@@ -81,9 +85,10 @@ export class VeoService {
     if (!downloadLink) throw new Error("Failed to generate video");
 
     // 3. Download via proxy to avoid CORS and handle auth
+    // Trình duyệt không thể tự gửi header 'x-goog-api-key' vào thẻ <video>
+    // Nên chúng ta phải dùng server làm proxy trung gian.
     const videoUrl = `/api/veo/download?uri=${encodeURIComponent(downloadLink)}&key=${encodeURIComponent(this.apiKey)}`;
     
-    // We can return the proxy URL directly
     return videoUrl;
   }
 }

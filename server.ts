@@ -202,15 +202,22 @@ async function startServer() {
   // --- VEO 3 / GEMINI PROXY ROUTES ---
   
   app.post("/api/veo/test", async (req, res) => {
-    const { veo_api_key, veo_base_url } = req.body;
+    const { veo_api_key, veo_base_url, veo_model } = req.body;
     const apiKey = veo_api_key || process.env.VITE_GEMINI_API_KEY;
     const baseUrl = veo_base_url || "https://generativelanguage.googleapis.com";
+    const model = veo_model || "gemini-1.5-flash"; // For test, we use flash or provided model
 
     try {
-      const url = `${baseUrl.replace(/\/$/, '')}/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+      // Hỗ trợ cả proxy có /v1 hoặc không
+      const cleanBaseUrl = baseUrl.replace(/\/$/, '');
+      const url = `${cleanBaseUrl}/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      
       const response = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey // Gửi cả header cho chắc chắn
+        },
         body: JSON.stringify({ contents: [{ parts: [{ text: "Hi" }] }] })
       });
 
@@ -222,15 +229,21 @@ async function startServer() {
   });
 
   app.post("/api/veo/generate", async (req, res) => {
-    const { veo_api_key, veo_base_url, prompt, image, config } = req.body;
+    const { veo_api_key, veo_base_url, veo_model, prompt, image, config } = req.body;
     const apiKey = veo_api_key || process.env.VITE_GEMINI_API_KEY;
     const baseUrl = veo_base_url || "https://generativelanguage.googleapis.com";
+    const model = veo_model || "veo-3.1-fast-generate-preview";
 
     try {
-      const url = `${baseUrl.replace(/\/$/, '')}/v1beta/models/veo-3.1-fast-generate-preview:generateVideos?key=${apiKey}`;
+      const cleanBaseUrl = baseUrl.replace(/\/$/, '');
+      const url = `${cleanBaseUrl}/v1beta/models/${model}:generateVideos?key=${apiKey}`;
+      
       const response = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey
+        },
         body: JSON.stringify({
           prompt,
           ...(image ? { image } : {}),
@@ -252,8 +265,12 @@ async function startServer() {
     const baseUrl = veo_base_url || "https://generativelanguage.googleapis.com";
 
     try {
-      const url = `${baseUrl.replace(/\/$/, '')}/v1beta/${operation_name}?key=${apiKey}`;
-      const response = await fetch(url);
+      const cleanBaseUrl = baseUrl.replace(/\/$/, '');
+      const url = `${cleanBaseUrl}/v1beta/${operation_name}?key=${apiKey}`;
+      
+      const response = await fetch(url, {
+        headers: { 'x-goog-api-key': apiKey }
+      });
       if (!response.ok) throw new Error(await response.text());
       const data = await response.json();
       res.json(data);
@@ -273,12 +290,40 @@ async function startServer() {
         headers: { 'x-goog-api-key': apiKey || "" }
       });
       
-      if (!response.ok) throw new Error("Failed to download video");
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("Download Proxy Error:", errorText);
+        return res.status(response.status).send(errorText);
+      }
 
+      // Chuyển tiếp các header quan trọng
       res.setHeader('Content-Type', 'video/mp4');
-      // @ts-ignore
-      response.body.pipe(res);
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      
+      // Sử dụng stream để truyền dữ liệu hiệu quả, tránh tốn RAM server
+      if (response.body) {
+        // @ts-ignore - Node fetch body is a ReadableStream in newer versions
+        const reader = response.body.getReader();
+        
+        const stream = new ReadableStream({
+          async start(controller) {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              controller.enqueue(value);
+            }
+            controller.close();
+          }
+        });
+
+        // Chuyển đổi Web Stream sang Node Stream để pipe
+        const nodeStream = require('stream').Readable.fromWeb(stream);
+        nodeStream.pipe(res);
+      } else {
+        res.status(500).send("No response body from Google");
+      }
     } catch (error: any) {
+      console.error("Proxy Download Exception:", error);
       res.status(500).send(error.message);
     }
   });
