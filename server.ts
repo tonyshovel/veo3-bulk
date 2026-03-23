@@ -245,6 +245,24 @@ async function startServer() {
 
     try {
       let cleanBaseUrl = baseUrl.replace(/\/$/, '');
+
+      // Check if it's the shopaikey.com API
+      if (cleanBaseUrl.includes('shopaikey.com')) {
+        const url = `${cleanBaseUrl}/generations`;
+        const response = await fetch(url, {
+          headers: { 
+            'Authorization': `Bearer ${apiKey}`
+          }
+        });
+        
+        if (response.status === 401) {
+          return res.status(401).json({ error: "Invalid API Key for shopaikey.com" });
+        }
+        
+        // Even if it's 404 or 405, if it's not 401, the key is likely valid
+        return res.json({ success: true });
+      }
+
       const hasVersion = cleanBaseUrl.includes('/v1') || cleanBaseUrl.includes('/v1beta');
       
       const url = hasVersion 
@@ -291,7 +309,45 @@ async function startServer() {
     try {
       let cleanBaseUrl = baseUrl.replace(/\/$/, '');
       
-      // Construct URL carefully
+      // Check if it's the shopaikey.com API
+      if (cleanBaseUrl.includes('shopaikey.com')) {
+        const url = `${cleanBaseUrl}/generations`;
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`
+          },
+          body: JSON.stringify({
+            prompt,
+            model: model.includes('veo') ? model : 'veo3-fast', // Ensure valid model for this API
+            images: image ? [image.url || `data:${image.mimeType};base64,${image.imageBytes}`] : [],
+            aspect_ratio: config?.aspectRatio || '16:9',
+            enhance_prompt: true,
+            enable_upsample: true
+          })
+        });
+
+        const responseText = await response.text();
+        let data: any = {};
+        try { data = JSON.parse(responseText); } catch (e) { /* Not JSON */ }
+
+        if (!response.ok) {
+          return res.status(response.status).json({ 
+            error: data.error?.message || responseText || "Failed to start generation",
+            status: response.status
+          });
+        }
+        
+        // Normalize response for frontend (shopaikey uses task_id, Google uses name)
+        return res.json({
+          name: data.task_id, // Map task_id to name for frontend consistency
+          done: false,
+          status: data.status
+        });
+      }
+
+      // Construct URL carefully for Google/Other proxies
       let url: string;
       if (cleanBaseUrl.includes('googleapis.com')) {
         // Official Google API - always use v1beta for Veo 3.1
@@ -317,6 +373,21 @@ async function startServer() {
           'x-goog-api-key': apiKey
         },
         body: JSON.stringify({
+          // Some versions/proxies expect 'contents'
+          contents: [
+            {
+              parts: [
+                { text: prompt },
+                ...(image ? [{ 
+                  inlineData: { 
+                    data: image.imageBytes, 
+                    mimeType: image.mimeType 
+                  } 
+                }] : [])
+              ]
+            }
+          ],
+          // Others expect 'prompt' and 'image' at top level
           prompt,
           ...(image ? { image } : {}),
           config
@@ -350,6 +421,38 @@ async function startServer() {
 
     try {
       const cleanBaseUrl = baseUrl.replace(/\/$/, '');
+
+      // Check if it's the shopaikey.com API
+      if (cleanBaseUrl.includes('shopaikey.com')) {
+        const url = `${cleanBaseUrl}/generations/${operation_name}`;
+        const response = await fetch(url, {
+          headers: { 
+            'Accept': 'application/json',
+            'Authorization': `Bearer ${apiKey}`
+          }
+        });
+
+        const responseText = await response.text();
+        let data: any = {};
+        try { data = JSON.parse(responseText); } catch (e) { /* Not JSON */ }
+
+        if (!response.ok) {
+          return res.status(response.status).json({ error: data.error?.message || responseText || "Failed to check status" });
+        }
+
+        // Normalize response for frontend
+        return res.json({
+          name: data.task_id,
+          done: data.status === 'completed' || data.status === 'failed',
+          response: data.status === 'completed' ? {
+            generatedVideos: [{
+              video: { uri: data.video_url }
+            }]
+          } : undefined,
+          error: data.status === 'failed' ? { message: data.error || "Generation failed" } : undefined
+        });
+      }
+
       const hasVersion = cleanBaseUrl.includes('/v1') || cleanBaseUrl.includes('/v1beta');
       const url = hasVersion
         ? `${cleanBaseUrl}/${operation_name}?key=${apiKey}`
@@ -379,9 +482,14 @@ async function startServer() {
     if (!uri) return res.status(400).send("Missing URI");
 
     try {
-      const response = await fetch(uri, {
-        headers: { 'x-goog-api-key': apiKey || "" }
-      });
+      const headers: Record<string, string> = {};
+      if (uri.includes('shopaikey.com')) {
+        headers['Authorization'] = `Bearer ${apiKey}`;
+      } else {
+        headers['x-goog-api-key'] = apiKey || "";
+      }
+
+      const response = await fetch(uri, { headers });
       
       if (!response.ok) {
         const errorText = await response.text();
